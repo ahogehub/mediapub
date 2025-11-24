@@ -1,14 +1,40 @@
-use std::{fmt::format, fs::File, io::{self, Write}};
+use std::io::{self, Error};
 
 use actix_cors::Cors;
 use actix_multipart::form::{MultipartForm, MultipartFormConfig, tempfile::TempFile};
-use actix_web::{App, HttpResponse, HttpServer, Responder, get, http::{StatusCode, header::{CROSS_ORIGIN_RESOURCE_POLICY, ContentType}}, web};
+use actix_web::{App, HttpResponse, HttpServer, Responder, get, http::{StatusCode, header::ContentType}, web};
+use rusqlite::Connection;
 use uuid::Uuid;
+use serde::Serialize;
 
 const MAX_PAYLOAD_SIZE:usize = 1024 * 1024 * 1024;
-
+const DB_PATH:&str = "./data/database.db";
 #[actix_web::main]
 async fn  main() -> io::Result<()>{
+    //database initialization
+    let connection = match Connection::open(DB_PATH) {
+        Ok(conn) => conn,
+        Err(e)=>{
+            println!("Error while establish connection to db");
+            println!("{}",e.to_string());
+            return Err(Error::new(io::ErrorKind::Other,e.to_string()))
+            
+        }
+    };
+    match connection.execute(
+        "CREATE TABLE IF NOT EXISTS item (
+            id TEXT PRIMARY KEY,
+            file TEXT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )",
+        (),
+    ) {
+        Ok(_) => println!("table created or already exists"),
+        Err(e) => {
+            println!("Failed to create table: {}", e);
+            return Err(Error::new(io::ErrorKind::Other, e.to_string()))
+        }
+    };
     HttpServer::new(move ||{
         App::new()
         .app_data(web::PayloadConfig::new(MAX_PAYLOAD_SIZE))
@@ -24,8 +50,12 @@ async fn  main() -> io::Result<()>{
             .route(web::get().to(index))
             .route(web::post().to(upload))
         )
+        .service(
+            web::resource("/get")
+            .route(web::get().to(get))
+        )
     })
-    .bind(("127.0.0.1",8080))?
+    .bind(("0.0.0.0",8080))?
     .workers(2)
     .run()
     .await
@@ -42,8 +72,59 @@ struct UploadForm{
     file:Vec<TempFile>
 }
 
+
+async fn get() -> io::Result<impl Responder>{
+    let connection = match Connection::open(DB_PATH) {
+        Ok(conn)=>conn,
+        Err(e)=>{
+            println!("Error while establish connection to db");
+            println!("{}",e.to_string());
+            return Err(Error::new(io::ErrorKind::Other,e.to_string()));
+        }
+    };
+    let mut stmt = match connection.prepare("SELECT file FROM item") {
+        Ok(s) => s,
+        Err(e) => {
+            println!("Failed to prepare statement: {}", e);
+            return Err(Error::new(io::ErrorKind::Other, e.to_string()));
+        }
+    };
+    let files_iter = match stmt.query_map([], |row| row.get::<_, String>(0)) {
+        Ok(iter) => iter,
+        Err(e) => {
+            println!("Failed to query: {}", e);
+            return Err(Error::new(io::ErrorKind::Other, e.to_string()));
+        }
+    };
+    let mut files = Vec::new();
+    for file in files_iter {
+        match file {
+            Ok(f) => files.push(f),
+            Err(e) => {
+                println!("Failed to get file: {}", e);
+                return Err(Error::new(io::ErrorKind::Other, e.to_string()));
+            }
+        }
+    }
+    #[derive(Serialize)]
+    struct ResponseJson{
+        files:Vec<String>
+    }
+    let body_json = ResponseJson { files:files };
+    Ok(HttpResponse::Ok().content_type(ContentType::json()).json(body_json))
+}
+
 const DESTINATION:&str = "./tmp";
 async fn upload(MultipartForm(form):MultipartForm<UploadForm>) -> io::Result<impl Responder> {
+    let connection = match Connection::open(DB_PATH) {
+        Ok(conn) => conn,
+        Err(e)=>{
+            println!("Error while establish connection to db");
+            println!("{}",e.to_string());
+            return Err(Error::new(io::ErrorKind::Other,e.to_string()))
+            
+        }
+    };
     for f in form.file.into_iter(){
         match f.content_type {
             Some(ct_type)=>{
@@ -54,7 +135,6 @@ async fn upload(MultipartForm(form):MultipartForm<UploadForm>) -> io::Result<imp
             }
         }
         println!("Size:{}",f.size);
-        // take ownership of the filename once so we don't move it multiple times or borrow a temporary
         let filename = match f.file_name {
             Some(name) => name,
             None => {
@@ -72,6 +152,17 @@ async fn upload(MultipartForm(form):MultipartForm<UploadForm>) -> io::Result<imp
             Ok(_)=>println!("{} saved successfully",filename),
             Err(_)=>println!("{} failed to save",filename)
         };
+        let _ = match connection.execute("
+            INSERT INTO item (id, file)
+            VALUES (?1, ?2)
+        ",(&Uuid::new_v4().to_string().as_str(),&new_filename)
+        ) {
+            Ok(_) => {},
+            Err(e) => {
+                println!("Insert Error {}",e.to_string());
+                return Ok(HttpResponse::InternalServerError().finish());
+            }
+        };
     };
     let html = r#"
     <html>
@@ -83,6 +174,7 @@ async fn upload(MultipartForm(form):MultipartForm<UploadForm>) -> io::Result<imp
         </body>
     </html>
     "#;
+    
     Ok(HttpResponse::build(StatusCode::OK).content_type(ContentType::html()).body(html))
 }
 

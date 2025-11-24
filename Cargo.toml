@@ -13,3 +13,15 @@ version = "1.18.1"
 features = [
     "v4"
 ]
+
+[dependencies.rusqlite]
+version = "0.37.0"
+features = [
+    "bundled"
+]
+
+[dependencies.serde]
+version = "1.0.228"
+features = [
+    "derive"
+]
