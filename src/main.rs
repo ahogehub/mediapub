@@ -3,11 +3,14 @@ use std::io::{self, Error};
 use actix_cors::Cors;
 use actix_files::NamedFile;
 use actix_multipart::form::{MultipartForm, MultipartFormConfig, tempfile::TempFile};
-use actix_web::{App, HttpResponse, HttpServer, Responder, dev::Path, get, http::{StatusCode, header::ContentType}, web};
+use actix_web::{App, HttpResponse, HttpServer, Responder, get, http::{StatusCode, header::ContentType}, web};
 use rusqlite::Connection;
 use uuid::Uuid;
 use serde::Serialize;
-
+#[derive(Serialize)]
+  struct ResponseJson{ 
+      files:Vec<String>
+  }
 const MAX_PAYLOAD_SIZE:usize = 1024 * 1024 * 1024;
 const DB_PATH:&str = "./data/database.db";
 #[actix_web::main]
@@ -108,20 +111,17 @@ async fn get() -> io::Result<impl Responder>{
             return Err(Error::new(io::ErrorKind::Other, e.to_string()));
         }
     };
-    let mut files = Vec::new();
+    let mut files:Vec<String> = Vec::new();
     for file in files_iter {
         match file {
             Ok(f) => files.push(f),
             Err(e) => {
                 println!("Failed to get file: {}", e);
-                return Err(Error::new(io::ErrorKind::Other, e.to_string()));
+               return Err(Error::new(io::ErrorKind::Other, e.to_string()));
             }
         }
     }
-    #[derive(Serialize)]
-    struct ResponseJson{
-        files:Vec<String>
-    }
+  
     let body_json = ResponseJson { files:files };
     Ok(HttpResponse::Ok().content_type(ContentType::json()).json(body_json))
 }
@@ -137,6 +137,7 @@ async fn upload(MultipartForm(form):MultipartForm<UploadForm>) -> io::Result<imp
             
         }
     };
+    let mut recived_files:Vec<String> = Vec::new();
     for f in form.file.into_iter(){
         match f.content_type {
             Some(ct_type)=>{
@@ -169,26 +170,21 @@ async fn upload(MultipartForm(form):MultipartForm<UploadForm>) -> io::Result<imp
             VALUES (?1, ?2)
         ",(&Uuid::new_v4().to_string().as_str(),&new_filename)
         ) {
-            Ok(_) => {},
+            Ok(_) => {
+                recived_files.push(new_filename);
+            },
             Err(e) => {
                 println!("Insert Error {}",e.to_string());
                 return Ok(HttpResponse::InternalServerError().finish());
             }
         };
     };
-    let html = r#"
-    <html>
-        <head>
-            <title?>Thx for uploading!</title?
-        </head>
-        <body>
-            <h1>THX</h1>
-        </body>
-    </html>
-    "#;
-    
-    Ok(HttpResponse::build(StatusCode::OK).content_type(ContentType::html()).body(html))
+    let response = ResponseJson{
+        files:recived_files
+    }; 
+    Ok(HttpResponse::Ok().content_type(ContentType::json()).json(response))
 }
+//for debug
 
 async fn index()-> io::Result<impl Responder>{
     let html = r#"
