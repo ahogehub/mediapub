@@ -1,0 +1,10 @@
+pub mod init;
+pub mod route;
+pub mod types;
+pub mod utility;
+pub mod errors;
+pub const DESTINATION: &str = "./tmp";
+pub const MAX_PAYLOAD_SIZE: usize = 1024 * 1024 * 1024;
+pub const DB_PATH: &str = "./data/database.db";
+pub const MONGODB_URI: &str = "mongodb://localhost:27017";
+pub const POSTGRES_URI: &str = "postgresql://postgres:ahogehub@localhost:5432";
