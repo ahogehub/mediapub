@@ -13,7 +13,7 @@ pub struct Post {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ResponseFile{
+pub struct ResponseFile {
     pub file: Vec<String>,
 }
 
@@ -30,4 +30,50 @@ pub struct UploadFrom {
     #[multipart(limit = "10MB")]
     pub file: Vec<TempFile>,
     pub metadata: Json<Vec<UploadJson>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SignUpRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SignUpResponse {
+    pub user_id: String,
+    pub username: String,
+    pub message: String,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
+#[derive(Debug, Deserialize)]
+pub struct LoginSession {
+    pub session_token: String,
+}
+#[derive(Debug, Deserialize)]
+pub struct RefreshToken {
+    pub refresh_token: String,
+}
+#[derive(Debug, Serialize)]
+pub struct LoginResponse {
+    pub user_id: String,
+    pub username: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionTokenResponse {
+    pub user_id: String,
+    pub username: String,
+    pub session_token: String,
+    pub refresh_token: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ErrorResponse {
+    pub error: String,
 }

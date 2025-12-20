@@ -1,4 +1,5 @@
-use crate::{MONGODB_URI, };
+use crate::MONGODB_URI;
+use crate::types::ErrorResponse;
 use actix_web::HttpResponse;
 use deadpool_postgres::{Object, Pool};
 use serde::Deserialize;
@@ -17,10 +18,10 @@ pub async fn connect_to_mongo() -> std::io::Result<mongodb::Client> {
     }
 }
 
-pub async fn get_psql_pool(pool:&Pool) -> std::io::Result<Object>{
+pub async fn get_psql_pool(pool: &Pool) -> std::io::Result<Object> {
     match pool.get().await {
         Ok(conn) => Ok(conn),
-        Err(e)=>{
+        Err(e) => {
             eprintln!("Failed to get connection from pool: {}", e);
             Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -54,8 +55,6 @@ fn extract_user_id_from_row(row: &tokio_postgres::Row) -> Result<Uuid, ErrorKind
     }
 }
 
-/// Check user validity using a connection from the pool
-/// This is the preferred method to use in request handlers
 pub async fn check_user_validity_with_pool(
     pool: &Pool,
     credential: &str,
@@ -71,7 +70,7 @@ pub async fn check_user_validity_with_pool(
 
     let user_id = match credential_type {
         CredentialType::DevToken => {
-            match psql_client 
+            match psql_client
                 .query_one(
                     "SELECT user_id FROM dev_token WHERE token_hash = $1 AND is_revoked = false",
                     &[&credential],
@@ -86,11 +85,12 @@ pub async fn check_user_validity_with_pool(
             }
         }
         CredentialType::SessionToken => {
-            match psql_client 
+            match psql_client
                 .query_one(
                     "SELECT user_id FROM session WHERE session_token = $1 AND is_revoked = false",
                     &[&credential],
-                ).await
+                )
+                .await
             {
                 Ok(row) => extract_user_id_from_row(&row),
                 Err(e) => {
@@ -104,10 +104,12 @@ pub async fn check_user_validity_with_pool(
         Ok(id) => id,
         Err(e) => return Err(e),
     };
-    match psql_client .query_one(
-        "SELECT is_active FROM \"user\" WHERE user_id = $1 AND is_active = true",
-        &[&user_id.to_string()]
-        ).await
+    match psql_client
+        .query_one(
+            "SELECT is_active FROM \"user\" WHERE user_id = $1 AND is_active = true",
+            &[&user_id.to_string()],
+        )
+        .await
     {
         Ok(_) => Ok(user_id),
         Err(e) => {
@@ -120,12 +122,20 @@ pub async fn check_user_validity_with_pool(
 pub fn generate_response(error: &ErrorKind) -> HttpResponse {
     match error {
         ErrorKind::AuthError(InvalidCredential) => {
-            HttpResponse::Unauthorized().body("invalid credential")
+            HttpResponse::Unauthorized().json(ErrorResponse {
+                error: "invalid credential".to_string(),
+            })
         }
-        ErrorKind::AuthError(UserInactive) => HttpResponse::Unauthorized().body("user inactive"),
+        ErrorKind::AuthError(UserInactive) => HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "user inactive".to_string(),
+        }),
         ErrorKind::AuthError(AccountSuspended) => {
-            HttpResponse::Unauthorized().body("account suspended")
+            HttpResponse::Unauthorized().json(ErrorResponse {
+                error: "account suspended".to_string(),
+            })
         }
-        ErrorKind::DatabaseError(_) => HttpResponse::ExpectationFailed().finish(),
+        ErrorKind::DatabaseError(_) => HttpResponse::ExpectationFailed().json(ErrorResponse {
+            error: "Database error".to_string(),
+        }),
     }
 }

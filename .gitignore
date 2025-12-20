@@ -1,3 +1,6 @@
 /target
 /tmp
 /data
+.env_prod
+*.md
+*.txt

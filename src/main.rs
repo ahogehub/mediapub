@@ -6,7 +6,16 @@ use actix_web::{
     web,
 };
 use mediapub::{
-    ACTIX_PORT, ACTIX_SERVER, MAX_PAYLOAD_SIZE, db_pool::create_pool, init, route::{items::{get_all, get_one}, ping::ping, upload::upload}
+    ACTIX_PORT, ACTIX_SERVER, MAX_PAYLOAD_SIZE,
+    db_pool::create_pool,
+    init,
+    route::{
+        items::{get_all, get_one},
+        ping::ping,
+        upload::upload,
+        user::login::{raw, refresh_token, session_token_login},
+        user::signup::signup,
+    },
 };
 use std::io::{self, Error};
 
@@ -34,9 +43,9 @@ async fn main() -> Result<(), Error> {
             ));
         }
     }
-    let launch_msg = format!("Starting Server on {}:{}...",ACTIX_SERVER,ACTIX_PORT);
+    let launch_msg = format!("Starting Server on {}:{}...", ACTIX_SERVER, ACTIX_PORT);
 
-    println!("{}",&launch_msg);
+    println!("{}", &launch_msg);
 
     HttpServer::new(move || {
         App::new()
@@ -57,8 +66,12 @@ async fn main() -> Result<(), Error> {
             )
             .service(web::resource("/item").route(web::get().to(get_all)))
             .service(web::resource("/item/{item_id}").route(web::get().to(get_one)))
+            .service(web::resource("/signup").route(web::post().to(signup)))
+            .service(web::resource("/login").route(web::post().to(raw)))
+            .service(web::resource("/login/session").route(web::post().to(session_token_login)))
+            .service(web::resource("/login/refresh").route(web::post().to(refresh_token)))
     })
-    .bind((ACTIX_SERVER,ACTIX_PORT))?
+    .bind((ACTIX_SERVER, ACTIX_PORT))?
     .workers(2)
     .run()
     .await

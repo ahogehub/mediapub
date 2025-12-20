@@ -1,7 +1,9 @@
 use crate::{
     DESTINATION,
-    types::{Post, ResponseFile, UploadFrom},
-    utility::{self, CredentialType, check_user_validity_with_pool, generate_response, get_psql_pool},
+    types::{ErrorResponse, Post, ResponseFile, UploadFrom},
+    utility::{
+        self, CredentialType, check_user_validity_with_pool, generate_response, get_psql_pool,
+    },
 };
 use actix_multipart::form::MultipartForm;
 use actix_web::{
@@ -19,33 +21,45 @@ pub async fn upload(
     pool: web::Data<Pool>,
 ) -> io::Result<impl Responder> {
     if form.file.len() != form.metadata.len() {
-        return Ok(HttpResponse::BadRequest().body("metadata count does not match file count."));
+        return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+            error: "metadata count does not match file count.".to_string(),
+        }));
     }
     let auth = request.headers().get(AUTHORIZATION);
     if auth.is_none() {
-        return Ok(HttpResponse::Unauthorized().body("authorization header not found."));
+        return Ok(HttpResponse::Unauthorized().json(ErrorResponse {
+            error: "authorization header not found.".to_string(),
+        }));
     }
     let auth_header = match auth.unwrap().to_str() {
         Ok(h) => h,
         Err(_) => {
-            return Ok(HttpResponse::BadRequest().body("Invalid authorization header format."));
+            return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+                error: "Invalid authorization header format.".to_string(),
+            }));
         }
     };
-    let user_id = match check_user_validity_with_pool(&pool,auth_header,CredentialType::SessionToken).await {
-        Ok(id) => id,
-        Err(e) => return Ok(generate_response(&e)),
-    };
+    let user_id =
+        match check_user_validity_with_pool(&pool, auth_header, CredentialType::SessionToken).await
+        {
+            Ok(id) => id,
+            Err(e) => return Ok(generate_response(&e)),
+        };
     let mongo = match utility::connect_to_mongo().await {
         Ok(client) => client,
         Err(_) => {
-            return Ok(HttpResponse::ExpectationFailed().finish());
+            return Ok(HttpResponse::ExpectationFailed().json(ErrorResponse {
+                error: "Failed to connect to MongoDB".to_string(),
+            }));
         }
     };
     let coll = mongo.database("image").collection::<Post>("post");
     let postgres = match get_psql_pool(&pool).await {
-        Ok(conn)=>conn,
-        Err(_)=>{
-            return Ok(HttpResponse::ExpectationFailed().finish());
+        Ok(conn) => conn,
+        Err(_) => {
+            return Ok(HttpResponse::ExpectationFailed().json(ErrorResponse {
+                error: "Failed to get database connection".to_string(),
+            }));
         }
     };
     println!("database connection established");
@@ -57,7 +71,9 @@ pub async fn upload(
         Ok(stmt) => stmt,
         Err(e) => {
             eprintln!("Failed to prepare PostgreSQL statement: {}", e);
-            return Ok(HttpResponse::InternalServerError().body("Database preparation failed."));
+            return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Database preparation failed.".to_string(),
+            }));
         }
     };
 
@@ -69,7 +85,9 @@ pub async fn upload(
                 println!("Content-Type: {}", ct_type.essence_str());
             }
             None => {
-                return Ok(HttpResponse::BadRequest().body("Content-Type header missing."));
+                return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+                    error: "Content-Type header missing.".to_string(),
+                }));
             }
         }
 
@@ -77,14 +95,18 @@ pub async fn upload(
             Some(name) => name.clone(),
             None => {
                 eprintln!("filename was not found");
-                return Ok(HttpResponse::BadRequest().body("filename was not found."));
+                return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+                    error: "filename was not found.".to_string(),
+                }));
             }
         };
 
         let ext = match filename.rsplit('.').next() {
             Some(e) => e,
             None => {
-                return Ok(HttpResponse::BadRequest().body("extension was not found."));
+                return Ok(HttpResponse::BadRequest().json(ErrorResponse {
+                    error: "extension was not found.".to_string(),
+                }));
             }
         };
 
@@ -96,20 +118,24 @@ pub async fn upload(
             Ok(_) => println!("{} saved successfully", filename),
             Err(e) => {
                 eprintln!("{} failed to save: {}", filename, e);
-                return Ok(
-                    HttpResponse::InternalServerError().body("Failed to save uploaded file.")
-                );
+                return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "Failed to save uploaded file.".to_string(),
+                }));
             }
         }
-        if let Err(e) = postgres.execute(
+        if let Err(e) = postgres
+            .execute(
                 &statement,
                 &[&post_id.as_bytes().to_vec(), &user_id.as_bytes().to_vec()],
-            ).await
+            )
+            .await
         {
             eprintln!("PostgreSQL Insert Error: {}", e);
-            return Ok(HttpResponse::InternalServerError().body("Failed to store post metadata in database."));
+            return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Failed to store post metadata in database.".to_string(),
+            }));
         }
-        //for mongo 
+        //for mongo
         let article = Post {
             post_id,
             title: metadata.title.clone(),
@@ -126,9 +152,9 @@ pub async fn upload(
             }
             Err(e) => {
                 eprintln!("MongoDB Insert Error: {}", e);
-                return Ok(
-                    HttpResponse::InternalServerError().body("Failed to store post in MongoDB.")
-                );
+                return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                    error: "Failed to store post in MongoDB.".to_string(),
+                }));
             }
         }
     }

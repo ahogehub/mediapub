@@ -1,5 +1,5 @@
 use crate::DESTINATION;
-use crate::types::ResponseFile;
+use crate::types::{ErrorResponse, ResponseFile};
 use actix_files::NamedFile;
 use actix_web::{HttpResponse, Responder, web};
 use deadpool_postgres::Pool;
@@ -16,10 +16,9 @@ pub async fn get_all(pool: web::Data<Pool>) -> io::Result<impl Responder> {
         Ok(conn) => conn,
         Err(e) => {
             eprintln!("Failed to get connection from pool: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Failed to get database connection",
-            ));
+            return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Failed to get database connection".to_string(),
+            }));
         }
     };
 
@@ -32,10 +31,9 @@ pub async fn get_all(pool: web::Data<Pool>) -> io::Result<impl Responder> {
             .collect::<Vec<String>>(),
         Err(e) => {
             eprintln!("Query failed: {}", e);
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Query failed: {}", e),
-            ));
+            return Ok(HttpResponse::InternalServerError().json(ErrorResponse {
+                error: "Query failed".to_string(),
+            }));
         }
     };
 
