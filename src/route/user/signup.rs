@@ -4,6 +4,7 @@ use crate::{
 };
 use actix_web::{HttpResponse, Responder, web};
 use bcrypt::{DEFAULT_COST, hash};
+use chrono::{Duration, Utc};
 use deadpool_postgres::Pool;
 use uuid::Uuid;
 
@@ -47,14 +48,16 @@ pub async fn signup(
     };
 
     let user_id = Uuid::new_v4();
+    
+    let now = Utc::now();
+    let expires_at = now + Duration::weeks(12);
     let query = r#"
-        INSERT INTO "user" (user_id, username, password_hash)
-        VALUES ($1, $2, $3)
+        INSERT INTO "user" (user_id, username, password_hash, expired_at)
+        VALUES ($1, $2, $3, $4)
         RETURNING user_id, username
     "#;
-
     match psql_client
-        .query_one(query, &[&user_id, &data.username, &password_hash])
+        .query_one(query, &[&user_id, &data.username, &password_hash,&expires_at])
         .await
     {
         Ok(row) => {
